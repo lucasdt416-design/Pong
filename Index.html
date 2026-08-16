@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pong</title>
+<style>
+  body {
+    margin: 0;
+    background: radial-gradient(circle at center, #1a0b2e 0%, #0a0410 70%, #000 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    font-family: 'Courier New', monospace;
+    color: #eee;
+  }
+  h1 {
+    margin-bottom: 10px;
+    letter-spacing: 8px;
+    font-size: 42px;
+    background: linear-gradient(90deg, #00f0ff, #ff00e0, #ffea00);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 30px rgba(255, 0, 224, 0.4);
+  }
+  canvas {
+    background: #000;
+    border: 2px solid #00f0ff;
+    border-radius: 8px;
+    box-shadow: 0 0 25px rgba(0, 240, 255, 0.5), 0 0 60px rgba(255, 0, 224, 0.2);
+    display: block;
+  }
+  p {
+    color: #888;
+    margin-top: 14px;
+    letter-spacing: 1px;
+  }
+  .game-wrap {
+    position: relative;
+  }
+  #startScreen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    gap: 20px;
+  }
+  #startScreen h2 {
+    margin: 0;
+    letter-spacing: 3px;
+    color: #eee;
+  }
+  .diff-btn {
+    font-family: 'Courier New', monospace;
+    font-size: 18px;
+    letter-spacing: 2px;
+    padding: 12px 30px;
+    border-radius: 6px;
+    cursor: pointer;
+    background: transparent;
+    transition: all 0.15s ease;
+  }
+  #easyBtn {
+    border: 2px solid #00f0ff;
+    color: #00f0ff;
+  }
+  #easyBtn:hover {
+    background: #00f0ff;
+    color: #000;
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.7);
+  }
+  #hardBtn {
+    border: 2px solid #ff00e0;
+    color: #ff00e0;
+  }
+  #hardBtn:hover {
+    background: #ff00e0;
+    color: #000;
+    box-shadow: 0 0 20px rgba(255, 0, 224, 0.7);
+  }
+  .hidden {
+    display: none !important;
+  }
+</style>
+</head>
+<body>
+  <h1>PONG</h1>
+  <div class="game-wrap">
+    <canvas id="game" width="600" height="400"></canvas>
+    <div id="startScreen">
+      <h2>SELECT DIFFICULTY</h2>
+      <button class="diff-btn" id="easyBtn">EASY</button>
+      <button class="diff-btn" id="hardBtn">HARD</button>
+    </div>
+  </div>
+  <p>Use ↑ / ↓ or your mouse to move. First to 5 points beats Bob.</p>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const paddleWidth = 10, paddleHeight = 80;
+const ballSize = 10;
+
+let playerY = canvas.height / 2 - paddleHeight / 2;
+let aiY = canvas.height / 2 - paddleHeight / 2;
+
+let ballX = canvas.width / 2;
+let ballY = canvas.height / 2;
+let ballSpeedX = 4;
+let ballSpeedY = 4;
+
+let playerScore = 0;
+let aiScore = 0;
+const winningScore = 5;
+let gameOver = false;
+let gameStarted = false;
+
+// Difficulty settings: AI speed and reaction "deadzone"
+let aiSpeed = 4;
+let aiDeadzone = 10;
+
+const startScreen = document.getElementById("startScreen");
+document.getElementById("easyBtn").addEventListener("click", () => startGame("easy"));
+document.getElementById("hardBtn").addEventListener("click", () => startGame("hard"));
+
+function startGame(difficulty) {
+  if (difficulty === "easy") {
+    aiSpeed = 2.5;
+    aiDeadzone = 40;
+  } else {
+    aiSpeed = 6;
+    aiDeadzone = 4;
+  }
+  startScreen.classList.add("hidden");
+  gameStarted = true;
+}
+
+// Ball trail for a cool glowing effect
+let trail = [];
+
+// Colors
+const playerColor = "#00f0ff";
+const aiColor = "#ff00e0";
+const ballColor = "#ffea00";
+
+// Controls: keyboard
+const keys = {};
+document.addEventListener("keydown", (e) => {
+  keys[e.key] = true;
+  if (gameOver && e.key === " ") {
+    restartGame();
+  }
+});
+document.addEventListener("keyup", (e) => keys[e.key] = false);
+
+function restartGame() {
+  playerScore = 0;
+  aiScore = 0;
+  gameOver = false;
+  gameStarted = false;
+  ballX = canvas.width / 2;
+  ballY = canvas.height / 2;
+  ballSpeedX = 4;
+  ballSpeedY = 4;
+  trail = [];
+  startScreen.classList.remove("hidden");
+}
+
+// Controls: mouse
+canvas.addEventListener("mousemove", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mouseY = e.clientY - rect.top;
+  playerY = mouseY - paddleHeight / 2;
+});
+
+function resetBall() {
+  ballX = canvas.width / 2;
+  ballY = canvas.height / 2;
+  ballSpeedX = -ballSpeedX;
+  ballSpeedY = (Math.random() - 0.5) * 8;
+}
+
+function update() {
+  if (gameOver || !gameStarted) return;
+
+  // Keyboard movement
+  if (keys["ArrowUp"]) playerY -= 6;
+  if (keys["ArrowDown"]) playerY += 6;
+
+  // Clamp player paddle
+  playerY = Math.max(0, Math.min(canvas.height - paddleHeight, playerY));
+
+  // AI: follow the ball, speed/accuracy set by difficulty
+  const aiCenter = aiY + paddleHeight / 2;
+  if (aiCenter < ballY - aiDeadzone) aiY += aiSpeed;
+  else if (aiCenter > ballY + aiDeadzone) aiY -= aiSpeed;
+  aiY = Math.max(0, Math.min(canvas.height - paddleHeight, aiY));
+
+  // Move ball
+  ballX += ballSpeedX;
+  ballY += ballSpeedY;
+
+  // Track trail
+  trail.push({ x: ballX, y: ballY });
+  if (trail.length > 12) trail.shift();
+
+  // Bounce off top/bottom
+  if (ballY <= 0 || ballY >= canvas.height - ballSize) {
+    ballSpeedY = -ballSpeedY;
+  }
+
+  // Bounce off player paddle
+  if (
+    ballX <= paddleWidth &&
+    ballY + ballSize >= playerY &&
+    ballY <= playerY + paddleHeight
+  ) {
+    ballSpeedX = Math.abs(ballSpeedX);
+    const hitPos = (ballY - playerY) / paddleHeight - 0.5;
+    ballSpeedY += hitPos * 3;
+  }
+
+  // Bounce off AI paddle
+  if (
+    ballX >= canvas.width - paddleWidth - ballSize &&
+    ballY + ballSize >= aiY &&
+    ballY <= aiY + paddleHeight
+  ) {
+    ballSpeedX = -Math.abs(ballSpeedX);
+    const hitPos = (ballY - aiY) / paddleHeight - 0.5;
+    ballSpeedY += hitPos * 3;
+  }
+
+  // Score
+  if (ballX < 0) {
+    aiScore++;
+    checkWin();
+    resetBall();
+  } else if (ballX > canvas.width) {
+    playerScore++;
+    checkWin();
+    resetBall();
+  }
+}
+
+function checkWin() {
+  if (playerScore >= winningScore || aiScore >= winningScore) {
+    gameOver = true;
+  }
+}
+
+function draw() {
+  // Clear with slight fade for a subtle motion-blur glow
+  ctx.fillStyle = "rgba(0, 0, 0, 1)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Middle dashed line
+  ctx.strokeStyle = "#333";
+  ctx.setLineDash([8, 8]);
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2, 0);
+  ctx.lineTo(canvas.width / 2, canvas.height);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Ball trail
+  trail.forEach((p, i) => {
+    const alpha = (i + 1) / trail.length * 0.4;
+    ctx.fillStyle = `rgba(255, 234, 0, ${alpha})`;
+    ctx.fillRect(p.x, p.y, ballSize, ballSize);
+  });
+
+  // Paddles with glow
+  ctx.shadowBlur = 20;
+
+  ctx.shadowColor = playerColor;
+  ctx.fillStyle = playerColor;
+  ctx.fillRect(0, playerY, paddleWidth, paddleHeight);
+
+  ctx.shadowColor = aiColor;
+  ctx.fillStyle = aiColor;
+  ctx.fillRect(canvas.width - paddleWidth, aiY, paddleWidth, paddleHeight);
+
+  // Ball with glow
+  ctx.shadowColor = ballColor;
+  ctx.fillStyle = ballColor;
+  ctx.fillRect(ballX, ballY, ballSize, ballSize);
+
+  ctx.shadowBlur = 0;
+
+  // Score
+  ctx.font = "bold 32px 'Courier New', monospace";
+  ctx.fillStyle = playerColor;
+  ctx.fillText(playerScore, canvas.width / 2 - 50, 50);
+  ctx.fillStyle = aiColor;
+  ctx.fillText(aiScore, canvas.width / 2 + 30, 50);
+
+  // Labels
+  ctx.font = "12px 'Courier New', monospace";
+  ctx.fillStyle = playerColor;
+  ctx.fillText("YOU", 4, canvas.height - 10);
+  ctx.fillStyle = aiColor;
+  ctx.fillText("BOB", canvas.width - 34, canvas.height - 10);
+
+  if (gameOver) {
+    ctx.font = "bold 26px 'Courier New', monospace";
+    const winner = playerScore > aiScore ? "You win!" : "Bob wins!";
+    ctx.fillStyle = playerScore > aiScore ? playerColor : aiColor;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.fillText(winner + " Press SPACE to play again.", canvas.width / 2 - 175, canvas.height / 2);
+    ctx.shadowBlur = 0;
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
